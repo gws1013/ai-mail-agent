@@ -1,8 +1,8 @@
 """요양시설 테스트용 PDF 데이터 생성 스크립트.
 
 생성 파일:
-  - data/contracts/  : 요양시설 계약서 10개 (PDF)
-  - data/care_records/: 생활기록 보고서 10명 × 1주 (PDF)
+  - data/contracts/  : 요양시설 계약서 20개 (PDF)
+  - data/care_records/: 생활기록 보고서 20명 × 1주 (PDF)
 """
 
 from __future__ import annotations
@@ -35,6 +35,16 @@ PATIENTS = [
     {"name": "장영순", "age": 84, "grade": 3, "guardian": "장미래", "guardian_rel": "손녀", "guardian_tel": "010-8888-9999"},
     {"name": "송옥자", "age": 90, "grade": 4, "guardian": "송현우", "guardian_rel": "아들", "guardian_tel": "010-9999-0000"},
     {"name": "오말이", "age": 77, "grade": 2, "guardian": "오지은", "guardian_rel": "딸", "guardian_tel": "010-0000-1111"},
+    {"name": "강순덕", "age": 83, "grade": 3, "guardian": "강도현", "guardian_rel": "아들", "guardian_tel": "010-1212-3434"},
+    {"name": "배옥련", "age": 86, "grade": 4, "guardian": "배지수", "guardian_rel": "딸", "guardian_tel": "010-2323-4545"},
+    {"name": "조명자", "age": 80, "grade": 2, "guardian": "조성훈", "guardian_rel": "아들", "guardian_tel": "010-3434-5656"},
+    {"name": "임춘자", "age": 91, "grade": 5, "guardian": "임소라", "guardian_rel": "손녀", "guardian_tel": "010-4545-6767"},
+    {"name": "신말자", "age": 75, "grade": 1, "guardian": "신우진", "guardian_rel": "아들", "guardian_tel": "010-5656-7878"},
+    {"name": "유복순", "age": 87, "grade": 4, "guardian": "유하영", "guardian_rel": "딸", "guardian_tel": "010-6767-8989"},
+    {"name": "서정자", "age": 79, "grade": 2, "guardian": "서민준", "guardian_rel": "손자", "guardian_tel": "010-7878-9090"},
+    {"name": "권영자", "age": 84, "grade": 3, "guardian": "권나연", "guardian_rel": "딸", "guardian_tel": "010-8989-0101"},
+    {"name": "홍순이", "age": 89, "grade": 4, "guardian": "홍석현", "guardian_rel": "아들", "guardian_tel": "010-9090-1212"},
+    {"name": "문갑순", "age": 81, "grade": 3, "guardian": "문예진", "guardian_rel": "딸", "guardian_tel": "010-0101-2323"},
 ]
 
 SERVICE_TYPES = [

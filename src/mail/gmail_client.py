@@ -326,10 +326,8 @@ class GmailClient:
         part.add_header(
             "Content-Disposition",
             "attachment",
-            filename=("utf-8", "", path.name.encode("utf-8")),
+            filename=path.name,
         )
-        # Debug: print the actual Content-Disposition header
-        logger.info("Content-Disposition header: %s", part["Content-Disposition"])
         mime_msg.attach(part)
 
     def _get_or_create_label(self, label_name: str) -> str:

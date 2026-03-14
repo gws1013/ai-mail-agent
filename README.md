@@ -48,6 +48,12 @@ cp .env.example .env
 # Gmail OAuth 설정
 # credentials/ 디렉토리에 credentials.json 배치 후 최초 실행 시 브라우저 인증
 
+# 테스트 데이터 생성 (계약서·생활기록 PDF 각 20개)
+py -3.11 scripts/generate_test_data.py
+
+# ChromaDB에 PDF 데이터 인제스트
+py -3.11 scripts/ingest_to_chroma.py
+
 # 실행
 py -3.11 agent.py -t 1    # 1시간 전부터 메일 처리
 py -3.11 agent.py -t 0    # 지금부터 새 메일만 처리
@@ -65,7 +71,12 @@ ai-mail-agent/
 │   ├── rag/                  # ChromaDB 벡터스토어, 임베딩, 검색
 │   ├── prompts/              # LLM 프롬프트 템플릿 (txt)
 │   └── utils/                # 로깅, 비용 추적, 알림
-├── data/care_records/        # 생활기록 PDF 파일
+├── scripts/
+│   ├── generate_test_data.py # 테스트용 계약서·생활기록 PDF 생성 (20개씩)
+│   └── ingest_to_chroma.py   # PDF 데이터를 ChromaDB에 인제스트
+├── data/
+│   ├── contracts/            # 요양시설 계약서 PDF (20개)
+│   └── care_records/         # 생활기록 보고서 PDF (20개)
 ├── credentials/              # Gmail OAuth 인증 파일
 └── .env                      # 환경 변수
 ```
