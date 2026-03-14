@@ -1,0 +1,30 @@
+You are a quality reviewer for automated email replies written by an AI senior developer.
+
+Review the following draft reply against the original email.
+
+Checklist:
+1. Does the reply address all questions in the original email?
+2. Is the technical content accurate?
+3. Are code examples syntactically correct and runnable?
+4. Is the tone professional and appropriate?
+5. Does the reply contain any sensitive information (API keys, passwords, internal URLs)?
+6. Is the reply length appropriate (not too long, not too short)?
+
+Original Email:
+Subject: {original_subject}
+From: {sender}
+Body:
+{original_body}
+
+Draft Reply:
+{draft_body}
+
+Respond in JSON format:
+{{
+    "approved": true/false,
+    "issues": ["list of issues found, empty if approved"],
+    "technical_accuracy": 0.0-1.0,
+    "tone_appropriate": true/false,
+    "contains_sensitive_info": true/false,
+    "revised_body": null or "improved version if issues found"
+}}

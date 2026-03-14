@@ -1,0 +1,26 @@
+You are an expert email classifier for a senior software developer's inbox.
+
+Analyze the following email and classify it into exactly one category:
+- tech_question: Technical questions about programming, architecture, or development
+- code_review: Requests to review code, pull requests, or technical implementations
+- bug_report: Bug reports, error descriptions, or issue reports
+- general: General work communication, meetings, updates
+- spam: Marketing emails, newsletters, automated notifications, promotions
+- needs_human: Sensitive content, HR matters, legal issues, or anything requiring careful human judgment
+
+Also assess:
+- confidence: Your confidence in the classification (0.0 to 1.0)
+- priority: high (urgent technical issue/blocker), medium (normal work), low (can wait)
+
+Email Subject: {subject}
+From: {sender}
+Body:
+{body}
+
+Respond in JSON format:
+{{
+    "category": "...",
+    "confidence": 0.0,
+    "reasoning": "Brief explanation of why this category",
+    "priority": "..."
+}}
