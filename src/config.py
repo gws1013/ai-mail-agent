@@ -1,9 +1,4 @@
-"""
-Application configuration loaded from environment variables / .env file.
-
-Uses pydantic-settings for validation and type coercion.
-Access settings via the get_settings() singleton helper.
-"""
+"""Application configuration loaded from environment variables / .env file."""
 
 from __future__ import annotations
 
@@ -18,7 +13,7 @@ class Settings(BaseSettings):
     """Centralised application settings.
 
     All values can be overridden by environment variables or a ``.env`` file
-    placed in the project root.  Variable names are case-insensitive.
+    placed in the project root.
     """
 
     model_config = SettingsConfigDict(
@@ -28,127 +23,71 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ------------------------------------------------------------------ #
-    # AI / LLM
-    # ------------------------------------------------------------------ #
-    ANTHROPIC_API_KEY: Optional[str] = Field(
-        default=None,
-        description="API key for the Anthropic Claude API (optional).",
-    )
+    # ── AI / LLM ─────────────────────────────────────────────────
     OPENAI_API_KEY: str = Field(
         ...,
-        description="API key for the OpenAI API (required).",
+        description="OpenAI API key.",
     )
 
-    # ------------------------------------------------------------------ #
-    # Gmail OAuth
-    # ------------------------------------------------------------------ #
+    # ── Gmail OAuth ──────────────────────────────────────────────
     GMAIL_CREDENTIALS_PATH: str = Field(
         default="./credentials/credentials.json",
-        description="Path to the Gmail OAuth2 client-secrets JSON file.",
+        description="Path to Gmail OAuth2 credentials.json.",
     )
     GMAIL_TOKEN_PATH: str = Field(
         default="./credentials/token.json",
-        description="Path where the OAuth2 access/refresh token is persisted.",
+        description="Path to persisted OAuth2 token.",
     )
     GMAIL_WATCH_LABEL: str = Field(
         default="INBOX",
-        description="Gmail label to monitor for incoming messages.",
+        description="Gmail label to monitor.",
     )
 
-    # ------------------------------------------------------------------ #
-    # Vector store (ChromaDB)
-    # ------------------------------------------------------------------ #
+    # ── Vector store ─────────────────────────────────────────────
     CHROMA_PERSIST_DIR: str = Field(
         default="./chroma_db",
-        description="Directory used by ChromaDB for persistent storage.",
+        description="ChromaDB persistent storage directory.",
     )
 
-    # ------------------------------------------------------------------ #
-    # Agent behaviour
-    # ------------------------------------------------------------------ #
-    AUTO_SEND_THRESHOLD: float = Field(
-        default=0.8,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Confidence threshold above which the agent sends a reply "
-            "automatically without human review."
-        ),
-    )
+    # ── Agent behaviour ──────────────────────────────────────────
     POLL_INTERVAL_SECONDS: int = Field(
-        default=300,
+        default=10,
         gt=0,
-        description="How often (in seconds) to poll the Gmail inbox.",
+        description="How often (seconds) to poll Gmail inbox.",
     )
     MAX_RETRY_COUNT: int = Field(
         default=2,
         ge=0,
-        description="Maximum number of times a failed graph node is retried.",
+        description="Max retries for failed graph nodes.",
     )
 
-    # ------------------------------------------------------------------ #
-    # Cost guardrails
-    # ------------------------------------------------------------------ #
+    # ── Cost guardrails ──────────────────────────────────────────
     MAX_MONTHLY_COST_USD: float = Field(
         default=50.0,
         gt=0.0,
-        description="Hard cap on LLM spend per calendar month (USD).",
+        description="Hard cap on LLM spend per month (USD).",
     )
     COST_LOG_PATH: str = Field(
         default="./logs/cost.json",
-        description="File path where cumulative token/cost usage is logged.",
+        description="File path for cumulative cost log.",
     )
 
-    # ------------------------------------------------------------------ #
-    # Logging
-    # ------------------------------------------------------------------ #
-    LOG_LEVEL: str = Field(
-        default="INFO",
-        description="Python logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).",
-    )
-    LOG_DIR: str = Field(
-        default="./logs",
-        description="Directory where rotating log files are written.",
-    )
+    # ── Logging ──────────────────────────────────────────────────
+    LOG_LEVEL: str = Field(default="INFO")
+    LOG_DIR: str = Field(default="./logs")
 
-    # ------------------------------------------------------------------ #
-    # Optional integrations
-    # ------------------------------------------------------------------ #
-    SLACK_WEBHOOK_URL: Optional[str] = Field(
-        default=None,
-        description=(
-            "Incoming Webhook URL for Slack notifications.  "
-            "Leave unset to disable Slack alerts."
-        ),
-    )
-
-    # ------------------------------------------------------------------ #
-    # Validators
-    # ------------------------------------------------------------------ #
+    # ── Validators ───────────────────────────────────────────────
     @field_validator("LOG_LEVEL")
     @classmethod
     def _validate_log_level(cls, v: str) -> str:
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         normalised = v.upper()
         if normalised not in allowed:
-            raise ValueError(
-                f"LOG_LEVEL must be one of {sorted(allowed)}, got {v!r}."
-            )
+            raise ValueError(f"LOG_LEVEL must be one of {sorted(allowed)}, got {v!r}.")
         return normalised
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return the application-wide :class:`Settings` singleton.
-
-    The instance is constructed once and cached for the lifetime of the
-    process.  In tests, call ``get_settings.cache_clear()`` before patching
-    environment variables to force re-initialisation.
-
-    Returns
-    -------
-    Settings
-        The validated, fully-populated settings object.
-    """
+    """Return the application-wide Settings singleton."""
     return Settings()

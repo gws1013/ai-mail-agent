@@ -1,0 +1,11 @@
+방문예약 안내 답변.
+
+문의메일 — 제목: {subject} / 보낸이: {sender}
+{body}
+
+빈자리: {vacancy_count}자리 ({has_vacancy})
+가능일정:
+{available_dates}
+
+JSON만 응답:
+{{"body":"안내 답변","available_dates":["YYYY-MM-DD"],"has_vacancy":true}}

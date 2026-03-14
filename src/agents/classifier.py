@@ -1,9 +1,10 @@
-"""Classifier agent — assigns a category and priority to an incoming email."""
+"""Classifier agent — categorises incoming emails with softmax probabilities."""
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 from pathlib import Path
 
 from langchain_openai import ChatOpenAI
@@ -13,102 +14,114 @@ from src.graph.state import ClassificationResult, MailInput
 
 logger = logging.getLogger(__name__)
 
-# Absolute path to the prompts directory, resolved relative to this file's
-# location so it works regardless of the current working directory.
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+CATEGORIES = [
+    "signature_request",
+    "contract_inquiry",
+    "care_record",
+    "reservation",
+    "spam_or_other",
+]
+
+
+def _softmax(scores: dict[str, float]) -> dict[str, float]:
+    """Apply softmax to raw scores and return probability distribution.
+
+    Args:
+        scores: Raw scores per category (0-100 scale).
+
+    Returns:
+        Normalised probability distribution.
+    """
+    values = [scores.get(c, 0.0) for c in CATEGORIES]
+    max_val = max(values)
+    exps = [math.exp(v - max_val) for v in values]
+    total = sum(exps)
+    return {c: round(e / total, 4) for c, e in zip(CATEGORIES, exps)}
 
 
 class ClassifierAgent:
-    """Classify an incoming email into a category with confidence and priority.
+    """Classify incoming emails into 5 categories using softmax probabilities.
 
-    Parameters
-    ----------
-    api_key:
-        Anthropic API key forwarded to :class:`ChatAnthropic`.
+    Args:
+        api_key: OpenAI API key.
     """
 
     def __init__(self, api_key: str) -> None:
         self._llm = ChatOpenAI(
-            model="gpt-5-nano",
-            api_key=api_key,  # type: ignore[arg-type]
+            model="gpt-4o-mini",
+            api_key=api_key,
             temperature=0.0,
-            max_tokens=512,
+            max_tokens=2048,
         )
         self._prompt_path = _PROMPTS_DIR / "classifier.txt"
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def classify(self, mail_input: MailInput) -> ClassificationResult:
-        """Classify *mail_input* and return a :class:`ClassificationResult`.
+        """Classify an email and return softmax probabilities.
 
-        If the LLM call fails or the response cannot be parsed, a safe
-        ``needs_human`` result with low confidence is returned so the pipeline
-        can degrade gracefully.
+        Args:
+            mail_input: Parsed email input.
+
+        Returns:
+            ClassificationResult with category and probability distribution.
         """
         try:
-            prompt_text = self._load_prompt(mail_input)
-            # Retry up to 2 times on empty responses from gpt-5-nano
-            for attempt in range(3):
-                response = self._llm.invoke([HumanMessage(content=prompt_text)])
-                raw = str(response.content).strip()
-                if raw:
-                    return self._parse_response(raw)
-                logger.warning(
-                    "ClassifierAgent: empty response (attempt %d/3) for message_id=%s",
-                    attempt + 1, mail_input.message_id,
-                )
-            raise ValueError("LLM returned empty response after 3 attempts")
+            return self._call_llm(mail_input)
         except Exception:
             logger.exception(
-                "ClassifierAgent.classify failed for message_id=%s — "
-                "falling back to needs_human",
-                mail_input.message_id,
+                "Classifier failed for message_id=%s", mail_input.message_id
             )
             return ClassificationResult(
-                category="needs_human",
-                confidence=0.0,
-                reasoning="Classification failed due to an unexpected error.",
-                priority="medium",
+                category="spam_or_other",
+                probabilities={c: 0.2 for c in CATEGORIES},
+                reasoning="분류 실패 — 기본값 반환",
             )
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _load_prompt(self, mail_input: MailInput) -> str:
-        """Read the classifier prompt template and format it with *mail_input*."""
+    def _call_llm(self, mail_input: MailInput) -> ClassificationResult:
+        """Build prompt, call LLM, parse response with softmax."""
         template = self._prompt_path.read_text(encoding="utf-8")
-        return template.format(
+        prompt_text = template.format(
             subject=mail_input.subject,
             sender=mail_input.sender,
-            body=mail_input.body,
+            body=mail_input.body[:2000],
+            has_attachments="있음" if mail_input.has_attachments else "없음",
         )
 
-    def _parse_response(self, content: str) -> ClassificationResult:
-        """Parse the LLM text response into a :class:`ClassificationResult`.
+        for attempt in range(3):
+            response = self._llm.invoke([HumanMessage(content=prompt_text)])
+            raw = str(response.content).strip()
 
-        The model is instructed to return JSON, but it occasionally wraps the
-        JSON block in markdown fences — this method handles both cases.
-        """
-        # Strip optional ```json … ``` fences.
-        stripped = content.strip()
-        if stripped.startswith("```"):
-            lines = stripped.splitlines()
-            # Drop the opening fence (```json or ```) and the closing fence.
-            inner_lines = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-            stripped = "\n".join(inner_lines).strip()
+            if not raw:
+                logger.warning("Classifier: attempt %d/3 — empty response", attempt + 1)
+                continue
 
-        try:
-            data: dict = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            logger.warning("ClassifierAgent: JSON parse error: %s", exc)
-            raise
+            # Strip markdown fences
+            if raw.startswith("```"):
+                lines = raw.splitlines()
+                inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+                raw = "\n".join(inner).strip()
 
-        return ClassificationResult(
-            category=data["category"],
-            confidence=float(data["confidence"]),
-            reasoning=data.get("reasoning", ""),
-            priority=data["priority"],
-        )
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                logger.warning("Classifier: JSON parse error: %s", exc)
+                continue
+
+            raw_scores = data.get("scores", {})
+            probabilities = _softmax(raw_scores)
+            category = data.get("category", "spam_or_other")
+
+            # Log softmax probabilities
+            prob_str = " | ".join(
+                f"{c}: {probabilities.get(c, 0):.2%}" for c in CATEGORIES
+            )
+            logger.info("Classifier softmax: %s → %s", prob_str, category)
+
+            return ClassificationResult(
+                category=category,
+                probabilities=probabilities,
+                reasoning=data.get("reasoning", ""),
+            )
+
+        raise ValueError("Classifier: LLM returned no valid response after 3 attempts")

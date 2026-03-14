@@ -1,184 +1,236 @@
 """LangGraph node functions for the mail agent workflow."""
 
+from __future__ import annotations
+
 import logging
-from src.graph.state import AgentState, MailInput, ClassificationResult, AnalysisResult, DraftResult, ReviewResult
+from typing import Any
+
+from src.graph.state import (
+    AgentState, MailInput, ClassificationResult,
+    DraftResult, CareReportResult, SchedulerResult,
+)
 from src.agents.classifier import ClassifierAgent
-from src.agents.analyzer import AnalyzerAgent
-from src.agents.drafter import DrafterAgent
+from src.agents.signer import SignerAgent
+from src.agents.contract_replier import ContractReplierAgent
+from src.agents.care_reporter import CareReporterAgent
+from src.agents.scheduler import SchedulerAgent
 from src.agents.reviewer import ReviewerAgent
-from src.mail.gmail_client import GmailClient
 from src.mail.sender import EmailSender
+from src.mail.attachment import download_attachments
 from src.rag.retriever import ContextRetriever
-from src.config import get_settings
 from src.utils.notifier import notify
 
 logger = logging.getLogger(__name__)
 
-# These will be initialized in workflow.py and injected
+# Injected by orchestrator.init_agents()
 _classifier: ClassifierAgent | None = None
-_analyzer: AnalyzerAgent | None = None
-_drafter: DrafterAgent | None = None
+_signer: SignerAgent | None = None
+_contract_replier: ContractReplierAgent | None = None
+_care_reporter: CareReporterAgent | None = None
+_scheduler: SchedulerAgent | None = None
 _reviewer: ReviewerAgent | None = None
 _sender: EmailSender | None = None
 _retriever: ContextRetriever | None = None
+_gmail_client: Any = None
 
 
 def init_agents(
     classifier: ClassifierAgent,
-    analyzer: AnalyzerAgent,
-    drafter: DrafterAgent,
+    signer: SignerAgent,
+    contract_replier: ContractReplierAgent,
+    care_reporter: CareReporterAgent,
+    scheduler: SchedulerAgent,
     reviewer: ReviewerAgent,
     sender: EmailSender,
     retriever: ContextRetriever,
+    gmail_client: Any,
 ) -> None:
-    """Initialize agent references for node functions."""
-    global _classifier, _analyzer, _drafter, _reviewer, _sender, _retriever
+    """Inject agent references for node functions."""
+    global _classifier, _signer, _contract_replier, _care_reporter
+    global _scheduler, _reviewer, _sender, _retriever, _gmail_client
     _classifier = classifier
-    _analyzer = analyzer
-    _drafter = drafter
+    _signer = signer
+    _contract_replier = contract_replier
+    _care_reporter = care_reporter
+    _scheduler = scheduler
     _reviewer = reviewer
     _sender = sender
     _retriever = retriever
+    _gmail_client = gmail_client
 
 
-_NOREPLY_PATTERNS = [
-    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
-    "mailer-daemon", "postmaster",
-]
-
-_AD_SENDER_PATTERNS = [
-    "newsletter", "promo", "marketing", "notification", "alert",
-    "deals", "offer", "coupon", "digest",
-]
-
-
-def _is_auto_skip(sender: str) -> str | None:
-    """Return a skip reason if the sender looks like noreply/ad, else None."""
-    sender_lower = sender.lower()
-    for pat in _NOREPLY_PATTERNS:
-        if pat in sender_lower:
-            return f"noreply 발신자 ({sender})"
-    for pat in _AD_SENDER_PATTERNS:
-        if pat in sender_lower:
-            return f"광고성 발신자 ({sender})"
-    return None
-
+# ── Classify ─────────────────────────────────────────────────────
 
 def classify_node(state: AgentState) -> dict:
     """Classify the incoming email."""
     logger.info("Classifying email...")
-
-    raw_email = state["raw_email"]
-    sender = raw_email.get("sender", "")
-
-    # Fast pre-filter: skip noreply/ad senders without calling LLM
-    skip_reason = _is_auto_skip(sender)
-    if skip_reason:
-        logger.info(f"Auto-skip: {skip_reason}")
-        return {
-            "classification": {
-                "category": "spam",
-                "confidence": 1.0,
-                "reasoning": skip_reason,
-                "priority": "low",
-            },
-            "current_step": "classified",
-        }
+    raw = state["raw_email"]
 
     try:
-        mail_input = MailInput(**raw_email)
+        mail_input = MailInput(**raw)
         result = _classifier.classify(mail_input)
-        logger.info(f"Classification: {result.category} (confidence: {result.confidence})")
+        logger.info(
+            "Classification: %s (probs: %s)",
+            result.category, result.probabilities,
+        )
         return {
             "classification": result.model_dump(),
             "current_step": "classified",
         }
     except Exception as e:
-        logger.error(f"Classification failed: {e}")
+        logger.error("Classification failed: %s", e)
         return {
             "classification": {
-                "category": "needs_human",
-                "confidence": 0.0,
-                "reasoning": f"Classification error: {str(e)}",
-                "priority": "high",
+                "category": "spam_or_other",
+                "probabilities": {},
+                "reasoning": f"분류 오류: {e}",
             },
             "current_step": "classified",
             "error": str(e),
         }
 
 
-def analyze_node(state: AgentState) -> dict:
-    """Analyze the email context."""
-    logger.info("Analyzing email context...")
+# ── Signature processing ────────────────────────────────────────
+
+def signer_node(state: AgentState) -> dict:
+    """Download attachments and process signature request."""
+    logger.info("Processing signature request...")
+    raw = state["raw_email"]
+    mail_input = MailInput(**raw)
+
+    # Download attachments
+    att_metadata = raw.get("attachments", [])
+    if not att_metadata and mail_input.has_attachments:
+        detail = _gmail_client.get_email_detail(mail_input.message_id)
+        att_metadata = detail.get("attachments", [])
+
+    paths = []
+    if att_metadata:
+        paths = download_attachments(
+            _gmail_client, mail_input.message_id, att_metadata
+        )
+
+    result = _signer.process(mail_input, paths)
+
+    # Save to drafts
     try:
-        mail_input = MailInput(**state["raw_email"])
-        classification = ClassificationResult(**state["classification"])
-        result = _analyzer.analyze(mail_input, classification)
-        logger.info(f"Analysis complete. Tech stack: {result.tech_stack}")
-        return {
-            "analysis": result.model_dump(),
-            "current_step": "analyzed",
-        }
-    except Exception as e:
-        logger.error(f"Analysis failed: {e}")
-        return {
-            "analysis": {
-                "tech_stack": [],
-                "core_questions": [],
-                "related_context": [],
-                "code_snippets": [],
-                "suggested_approach": "Analysis failed, proceed with basic reply.",
-            },
-            "current_step": "analyzed",
-            "error": str(e),
-        }
+        _sender.save_draft(
+            raw, result.reply_body,
+            attachment_path=result.signed_file_path or None,
+        )
+        logger.info("Signature draft saved to Gmail drafts.")
+    except Exception:
+        logger.exception("Failed to save signature draft.")
+
+    notify(
+        title="서명 요청 처리 — 임시보관함 확인",
+        message=f"보낸이: {mail_input.sender}\n제목: {mail_input.subject}",
+    )
+
+    return {
+        "signer_result": result.model_dump(),
+        "attachments": paths,
+        "current_step": "signed",
+        "final_action": "drafted",
+    }
 
 
-def draft_node(state: AgentState) -> dict:
-    """Draft a reply email."""
-    logger.info("Drafting reply...")
-    try:
-        mail_input = MailInput(**state["raw_email"])
-        analysis = AnalysisResult(**state["analysis"])
+# ── Contract reply ───────────────────────────────────────────────
 
-        # Check if this is a redraft (reviewer feedback)
-        feedback = None
-        if state.get("review") and not state["review"].get("approved"):
-            feedback = "; ".join(state["review"].get("issues", []))
+def contract_reply_node(state: AgentState) -> dict:
+    """Draft a reply based on contract context."""
+    logger.info("Drafting contract reply...")
+    raw = state["raw_email"]
+    mail_input = MailInput(**raw)
+    classification = ClassificationResult(**state["classification"])
 
-        result = _drafter.draft(mail_input, analysis, feedback=feedback)
-        logger.info(f"Draft complete. Confidence: {result.confidence}")
-        return {
-            "draft": result.model_dump(),
-            "current_step": "drafted",
-        }
-    except Exception as e:
-        logger.error(f"Drafting failed: {e}")
-        return {
-            "error": str(e),
-            "current_step": "draft_failed",
-        }
+    context = _retriever.retrieve_context(mail_input, classification)
+    result = _contract_replier.draft(mail_input, context)
 
+    return {
+        "draft": result.model_dump(),
+        "current_step": "drafted",
+    }
+
+
+# ── Care record report ──────────────────────────────────────────
+
+def care_report_node(state: AgentState) -> dict:
+    """Draft a care record report for review and auto-send."""
+    logger.info("Drafting care record report...")
+    raw = state["raw_email"]
+    mail_input = MailInput(**raw)
+
+    care_data = _retriever.retrieve_care_records(
+        f"{mail_input.subject} {mail_input.body[:500]}"
+    )
+    result = _care_reporter.draft_report(mail_input, care_data)
+
+    # Find matching PDF to attach
+    from pathlib import Path
+    pdf_paths = []
+    if result.patient_name:
+        care_dir = Path("data/care_records")
+        if care_dir.exists():
+            for pdf in care_dir.glob("*.pdf"):
+                if result.patient_name in pdf.name:
+                    pdf_paths.append(str(pdf))
+                    logger.info("Attaching care record PDF: %s", pdf.name)
+
+    return {
+        "care_report": result.model_dump(),
+        "draft": DraftResult(
+            body=result.body,
+            confidence=0.8,
+        ).model_dump(),
+        "attachments": pdf_paths,
+        "current_step": "care_reported",
+    }
+
+
+# ── Reservation reply ───────────────────────────────────────────
+
+def scheduler_node(state: AgentState) -> dict:
+    """Draft a reservation/visit reply."""
+    logger.info("Drafting reservation reply...")
+    raw = state["raw_email"]
+    mail_input = MailInput(**raw)
+
+    result = _scheduler.draft_reply(mail_input)
+
+    return {
+        "scheduler_result": result.model_dump(),
+        "draft": DraftResult(
+            body=result.body,
+            confidence=0.8,
+        ).model_dump(),
+        "current_step": "scheduled",
+    }
+
+
+# ── Review ───────────────────────────────────────────────────────
 
 def review_node(state: AgentState) -> dict:
     """Review the draft reply."""
     logger.info("Reviewing draft...")
+    raw = state["raw_email"]
+    mail_input = MailInput(**raw)
+    draft = state.get("draft", {})
+    draft_body = draft.get("body", "")
+
     try:
-        mail_input = MailInput(**state["raw_email"])
-        draft = DraftResult(**state["draft"])
-        result = _reviewer.review(mail_input, draft)
-        logger.info(f"Review: {'APPROVED' if result.approved else 'REJECTED'}")
+        result = _reviewer.review(mail_input, draft_body)
+        logger.info("Review: %s", "APPROVED" if result.approved else "REJECTED")
         return {
             "review": result.model_dump(),
             "current_step": "reviewed",
         }
     except Exception as e:
-        logger.error(f"Review failed: {e}")
+        logger.error("Review failed: %s", e)
         return {
             "review": {
                 "approved": False,
-                "issues": [f"Review error: {str(e)}"],
-                "technical_accuracy": 0.0,
+                "issues": [f"리뷰 오류: {e}"],
                 "tone_appropriate": False,
                 "contains_sensitive_info": False,
                 "revised_body": None,
@@ -188,109 +240,37 @@ def review_node(state: AgentState) -> dict:
         }
 
 
+# ── Send ─────────────────────────────────────────────────────────
+
 def send_node(state: AgentState) -> dict:
     """Send the approved reply."""
     logger.info("Sending reply...")
+    raw = state["raw_email"]
+    draft = state.get("draft", {})
+    review = state.get("review", {})
+
+    body = review.get("revised_body") or draft.get("body", "")
+    attachments = state.get("attachments", [])
+    attachment = attachments[0] if attachments else None
+
     try:
-        draft = DraftResult(**state["draft"])
-        review = ReviewResult(**state["review"])
-        raw_email = state["raw_email"]
+        _sender.send_reply(raw, body, attachment_path=attachment)
+        logger.info("Reply sent to %s", raw.get("sender", "unknown"))
 
-        # Map parsed MailInput keys back to Gmail API keys for sender
-        sender_email = {
-            "id": raw_email.get("message_id", ""),
-            "threadId": raw_email.get("thread_id", ""),
-            "sender": raw_email.get("sender", ""),
-            "subject": raw_email.get("subject", ""),
-            "body": raw_email.get("body", ""),
-            "date": raw_email.get("received_at", "").strftime("%Y년 %m월 %d일 %H:%M")
-            if hasattr(raw_email.get("received_at", ""), "strftime")
-            else str(raw_email.get("received_at", "")),
-        }
-        result = _sender.send_reply(sender_email, draft, review)
-
-        # Store interaction for RAG
-        mail_input = MailInput(**raw_email)
-        classification = ClassificationResult(**state["classification"])
-        final_body = review.revised_body if review.revised_body else draft.body
-        _retriever.store_interaction(mail_input, classification, final_body)
-
-        logger.info(f"Reply sent successfully to {raw_email.get('sender', 'unknown')}")
         notify(
             title="메일 자동 답장 완료",
-            message=f"받는이: {raw_email.get('sender', '알 수 없음')}\n제목: Re: {raw_email.get('subject', '')}",
+            message=f"받는이: {raw.get('sender', '')}\n제목: Re: {raw.get('subject', '')}",
         )
-        return {
-            "current_step": "sent",
-            "final_action": "sent",
-        }
+
+        return {"current_step": "sent", "final_action": "sent"}
     except Exception as e:
-        logger.error(f"Send failed: {e}")
-        return {
-            "error": str(e),
-            "current_step": "send_failed",
-            "final_action": "error",
-        }
+        logger.error("Send failed: %s", e)
+        return {"error": str(e), "current_step": "send_failed", "final_action": "error"}
 
 
-def escalate_node(state: AgentState) -> dict:
-    """Escalate to human review."""
-    import re as _re
-
-    logger.info("Escalating to human review...")
-    reason = state.get("error") or "Low confidence or sensitive content"
-    if state.get("classification"):
-        reason = state["classification"].get("reasoning", reason)
-    logger.warning(f"Escalation reason: {reason}")
-
-    raw = state.get("raw_email", {})
-    sender = raw.get("sender", "알 수 없음")
-    subject = raw.get("subject", "(제목 없음)")
-
-    # Save draft reply to Gmail Drafts if a draft body exists
-    draft_data = state.get("draft")
-    if draft_data and draft_data.get("body") and _sender:
-        try:
-            match = _re.search(r"<([^>]+)>", sender)
-            to_addr = match.group(1) if match else sender
-            draft_obj = DraftResult(**draft_data)
-            reply_html = _sender._to_html(draft_obj.body)
-            original_body = raw.get("body", "")
-            original_date = (
-                raw.get("received_at", "").strftime("%Y년 %m월 %d일 %H:%M")
-                if hasattr(raw.get("received_at", ""), "strftime")
-                else str(raw.get("received_at", ""))
-            )
-            quoted_html = _sender._build_quoted_reply(
-                reply_html, original_body, sender, original_date,
-            )
-            _sender._client.create_draft(
-                to=to_addr,
-                subject=f"Re: {subject}" if not subject.lower().startswith("re:") else subject,
-                body_html=quoted_html,
-                thread_id=raw.get("thread_id", ""),
-                in_reply_to=raw.get("message_id", ""),
-            )
-            logger.info("Draft saved for escalated email: %s", subject)
-        except Exception:
-            logger.exception("Failed to save draft for escalated email")
-
-    # Desktop notification
-    notify(
-        title="메일 에스컬레이션 — 임시보관함 확인",
-        message=f"보낸이: {sender}\n제목: {subject}\n사유: {reason[:80]}",
-    )
-
-    return {
-        "current_step": "escalated",
-        "final_action": "escalated",
-    }
-
+# ── Skip ─────────────────────────────────────────────────────────
 
 def skip_node(state: AgentState) -> dict:
     """Skip spam/irrelevant emails."""
-    logger.info("Skipping email (spam/irrelevant)")
-    return {
-        "current_step": "skipped",
-        "final_action": "skipped",
-    }
+    logger.info("Skipping email (spam/other)")
+    return {"current_step": "skipped", "final_action": "skipped"}

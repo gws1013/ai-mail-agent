@@ -1,0 +1,8 @@
+서명 요청 답장. 서명 완료 안내.
+
+원본 — 제목: {subject} / 보낸이: {sender}
+{body}
+첨부: {attachment_names}
+
+JSON만 응답:
+{{"body":"답장 본문","confidence":0.0}}

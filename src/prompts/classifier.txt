@@ -1,26 +1,15 @@
-You are an expert email classifier for a senior software developer's inbox.
+이메일 분류. 5개 중 하나 선택.
 
-Analyze the following email and classify it into exactly one category:
-- tech_question: Technical questions about programming, architecture, or development
-- code_review: Requests to review code, pull requests, or technical implementations
-- bug_report: Bug reports, error descriptions, or issue reports
-- general: General work communication, meetings, updates
-- spam: Marketing emails, newsletters, automated notifications, promotions
-- needs_human: Sensitive content, HR matters, legal issues, or anything requiring careful human judgment
+1. signature_request: 서명 요청
+2. contract_inquiry: 계약서 문의
+3. care_record: 생활기록 요청
+4. reservation: 방문/입소 예약
+5. spam_or_other: 스팸/무관
 
-Also assess:
-- confidence: Your confidence in the classification (0.0 to 1.0)
-- priority: high (urgent technical issue/blocker), medium (normal work), low (can wait)
+제목: {subject}
+보낸이: {sender}
+첨부: {has_attachments}
+본문: {body}
 
-Email Subject: {subject}
-From: {sender}
-Body:
-{body}
-
-Respond in JSON format:
-{{
-    "category": "...",
-    "confidence": 0.0,
-    "reasoning": "Brief explanation of why this category",
-    "priority": "..."
-}}
+JSON만 응답:
+{{"category":"카테고리명","scores":{{"signature_request":0,"contract_inquiry":0,"care_record":0,"reservation":0,"spam_or_other":0}},"reasoning":"근거"}}

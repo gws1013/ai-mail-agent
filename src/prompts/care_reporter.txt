@@ -1,0 +1,10 @@
+요양시설 생활기록 보고서 작성. 정중한 어조.
+
+요청메일 — 제목: {subject} / 보낸이: {sender}
+{body}
+
+생활기록:
+{care_data}
+
+JSON만 응답:
+{{"body":"보고서 본문","patient_name":"어르신명","guardian_name":"보호자명","period":"기간"}}

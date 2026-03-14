@@ -1,20 +1,39 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
 build/
-.eggs/
+*.egg
 
-.env
-credentials/
-token.json
-
-chroma_db/
-logs/
-
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
-
+# Virtual environment
 .venv/
 venv/
+
+# Environment variables
+.env
+
+# Credentials (OAuth tokens)
+credentials/token.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# ChromaDB
+chroma_db/
+
+# Logs
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pytest
+.pytest_cache/
+.coverage
+
+# Agent runtime
+agent_output.log

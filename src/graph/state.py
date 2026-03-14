@@ -1,180 +1,119 @@
-"""
-LangGraph state definitions for the AI Mail Agent pipeline.
-
-Each Pydantic model represents the output of a single graph node.
-``AgentState`` is the overall TypedDict that LangGraph passes between nodes.
-"""
+"""Graph state definitions and Pydantic models for inter-agent communication."""
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 
-# --------------------------------------------------------------------------- #
-# Node input / output models
-# --------------------------------------------------------------------------- #
-
+# ── 입력 모델 ────────────────────────────────────────────────────
 
 class MailInput(BaseModel):
-    """Raw email data ingested at the start of the pipeline."""
+    """Parsed email input shared across all agents."""
 
-    subject: str = Field(description="Email subject line.")
-    sender: str = Field(description="RFC-5321 envelope sender address.")
-    body: str = Field(description="Plain-text email body.")
-    has_attachments: bool = Field(
-        default=False,
-        description="True when the message contains one or more attachments.",
-    )
-    message_id: str = Field(description="Gmail message ID (immutable).")
-    thread_id: str = Field(description="Gmail thread ID the message belongs to.")
-    received_at: datetime = Field(
-        description="UTC timestamp at which the message was received.",
-    )
+    message_id: str = ""
+    thread_id: str = ""
+    subject: str = ""
+    sender: str = ""
+    body: str = ""
+    received_at: str = ""
+    has_attachments: bool = False
+    attachment_ids: list[str] = Field(default_factory=list)
 
+
+# ── 분류 결과 ────────────────────────────────────────────────────
 
 class ClassificationResult(BaseModel):
-    """Output of the classification node."""
+    """Classifier output with softmax probabilities."""
 
-    category: Literal[
-        "tech_question",
-        "code_review",
-        "bug_report",
-        "general",
-        "spam",
-        "needs_human",
-    ] = Field(description="Primary category assigned to the email.")
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Model confidence in the assigned category (0 – 1).",
-    )
-    reasoning: str = Field(
-        description="Free-text explanation of why this category was chosen.",
-    )
-    priority: Literal["high", "medium", "low"] = Field(
-        description="Urgency level derived from email content and category.",
-    )
+    category: str = "spam_or_other"
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    reasoning: str = ""
 
+
+# ── 분석 결과 ────────────────────────────────────────────────────
 
 class AnalysisResult(BaseModel):
-    """Output of the deep-analysis node."""
+    """Context analysis output."""
 
-    tech_stack: list[str] = Field(
-        default_factory=list,
-        description="Technologies, frameworks, or languages mentioned in the email.",
-    )
-    core_questions: list[str] = Field(
-        default_factory=list,
-        description="Discrete questions or asks extracted from the email body.",
-    )
-    related_context: list[str] = Field(
-        default_factory=list,
-        description="Relevant passages retrieved from the RAG knowledge base.",
-    )
-    code_snippets: list[str] = Field(
-        default_factory=list,
-        description="Code blocks extracted verbatim from the email.",
-    )
-    suggested_approach: str = Field(
-        default="",
-        description="High-level strategy the draft node should follow when replying.",
-    )
+    related_context: list[str] = Field(default_factory=list)
+    patient_name: str = ""
+    guardian_name: str = ""
+    key_questions: list[str] = Field(default_factory=list)
+    suggested_approach: str = ""
 
+
+# ── 서명 처리 결과 ───────────────────────────────────────────────
+
+class SignerResult(BaseModel):
+    """Signer agent output."""
+
+    signed_file_path: str = ""
+    reply_body: str = ""
+    confidence: float = 0.0
+
+
+# ── 답변 초안 결과 ───────────────────────────────────────────────
 
 class DraftResult(BaseModel):
-    """Output of the draft-generation node."""
+    """Draft reply output."""
 
-    subject: str = Field(description="Reply subject line (usually 'Re: …').")
-    body: str = Field(description="Plain-text version of the reply body.")
-    body_html: str = Field(description="HTML version of the reply body.")
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Model self-assessed confidence in the draft quality (0 – 1).",
-    )
-    tone_check: str = Field(
-        description=(
-            "Brief self-assessment of the reply tone "
-            "(e.g. 'professional', 'too casual')."
-        ),
-    )
+    body: str = ""
+    sources: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    needs_escalation: bool = False
 
+
+# ── 생활기록 보고서 결과 ─────────────────────────────────────────
+
+class CareReportResult(BaseModel):
+    """Care reporter agent output."""
+
+    body: str = ""
+    patient_name: str = ""
+    guardian_name: str = ""
+    period: str = ""
+
+
+# ── 예약 확인 결과 ───────────────────────────────────────────────
+
+class SchedulerResult(BaseModel):
+    """Scheduler agent output."""
+
+    body: str = ""
+    available_dates: list[str] = Field(default_factory=list)
+    has_vacancy: bool = False
+
+
+# ── 리뷰 결과 ────────────────────────────────────────────────────
 
 class ReviewResult(BaseModel):
-    """Output of the review / quality-gate node."""
+    """Reviewer agent output."""
 
-    approved: bool = Field(
-        description="True when the draft passes all quality checks.",
-    )
-    issues: list[str] = Field(
-        default_factory=list,
-        description="List of problems found during review (empty when approved).",
-    )
-    technical_accuracy: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Estimated correctness of technical claims in the draft (0 – 1).",
-    )
-    tone_appropriate: bool = Field(
-        description="True when the reply tone is suitable for the recipient.",
-    )
-    contains_sensitive_info: bool = Field(
-        description=(
-            "True when the draft contains potentially sensitive or confidential "
-            "information that should not be sent."
-        ),
-    )
-    revised_body: Optional[str] = Field(
-        default=None,
-        description=(
-            "Corrected plain-text body produced by the reviewer when "
-            "``approved`` is False and an automatic fix is possible."
-        ),
-    )
+    approved: bool = False
+    issues: list[str] = Field(default_factory=list)
+    tone_appropriate: bool = True
+    contains_sensitive_info: bool = False
+    revised_body: Optional[str] = None
 
 
-# --------------------------------------------------------------------------- #
-# LangGraph overall state
-# --------------------------------------------------------------------------- #
-
+# ── LangGraph 상태 ───────────────────────────────────────────────
 
 class AgentState(TypedDict, total=False):
-    """Mutable state dict threaded through every node of the LangGraph pipeline.
+    """LangGraph shared state across all nodes."""
 
-    All fields are optional (``total=False``) so that individual nodes only
-    need to return the keys they modify; LangGraph merges partial updates.
-    """
-
-    raw_email: dict
-    """Serialised :class:`MailInput` data (populated by the ingest node)."""
-
-    classification: Optional[dict]
-    """Serialised :class:`ClassificationResult` (populated by classify node)."""
-
-    analysis: Optional[dict]
-    """Serialised :class:`AnalysisResult` (populated by analysis node)."""
-
-    draft: Optional[dict]
-    """Serialised :class:`DraftResult` (populated by draft node)."""
-
-    review: Optional[dict]
-    """Serialised :class:`ReviewResult` (populated by review node)."""
-
+    raw_email: dict[str, Any]
+    classification: Optional[dict[str, Any]]
+    analysis: Optional[dict[str, Any]]
+    attachments: list[str]
+    signer_result: Optional[dict[str, Any]]
+    draft: Optional[dict[str, Any]]
+    care_report: Optional[dict[str, Any]]
+    scheduler_result: Optional[dict[str, Any]]
+    review: Optional[dict[str, Any]]
     current_step: str
-    """Name of the node that is currently executing or was last executed."""
-
-    retry_count: int
-    """Number of times the current step has been retried after a failure."""
-
-    error: Optional[str]
-    """Human-readable error message set when a node raises an exception."""
-
     final_action: str
-    """
-    Outcome decided at the end of the pipeline, e.g.:
-    ``"sent"``, ``"queued_for_human"``, ``"discarded_spam"``, ``"failed"``.
-    """
+    error: Optional[str]
+    retry_count: int

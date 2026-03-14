@@ -1,0 +1,10 @@
+계약서 문의 답변. 아래 계약서 내용만 근거로 답변. 없으면 담당자 문의 안내.
+
+문의메일 — 제목: {subject} / 보낸이: {sender}
+{body}
+
+계약서:
+{contract_context}
+
+JSON만 응답:
+{{"body":"답변 본문","sources":["참조 조항"],"confidence":0.0}}
