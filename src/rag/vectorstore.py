@@ -84,6 +84,13 @@ class VectorStoreManager:
 
         if all_docs:
             collection = self.get_or_create_collection(name)
+            existing = collection.get()
+            if existing and existing.get("ids"):
+                logger.info(
+                    "Collection '%s' already has %d documents — skipping ingest.",
+                    name, len(existing["ids"]),
+                )
+                return 0
             collection.add_documents(all_docs)
             logger.info(
                 "Ingested %d documents into collection '%s'.",
